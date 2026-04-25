@@ -1,8 +1,10 @@
-import telebot, requests, os, threading, time
+import telebot, requests, threading, time
 from flask import Flask
 
-TOKEN = os.environ.get('BOT_TOKEN')
-API_KEY = os.environ.get('RAPIDAPI_KEY')
+# Yahan apni details seedha bhar dein (Bina kisi galti ke)
+TOKEN = "8501333951:AAHSRA5JVmdmWJNvKjzlh_HXaCe8DJ0dJF4"
+API_KEY = "44a1f4ca18msh81a7a24cb739bbep16d980jsn9758cb5433bc"
+
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['pnr'])
@@ -14,7 +16,7 @@ def check_pnr(message):
             return
             
         pnr_no = args[1]
-        bot.reply_to(message, "🔍 Server se data nikal raha hu...")
+        bot.reply_to(message, "🔍 Server se connect ho raha hu...")
 
         url = f"https://irctc-indian-railway-pnr-status.p.rapidapi.com/getPNRStatus/{pnr_no}"
         headers = {
@@ -25,28 +27,23 @@ def check_pnr(message):
         response = requests.get(url, headers=headers)
         res = response.json()
 
-        # Agar success sahi hai
         if res.get('success') == True:
-            # Data nikalne ki koshish
             data = res.get('data', {})
             pnr_status_list = data.get('pnr_status', [])
-            
             if pnr_status_list:
                 status = pnr_status_list[0].get('current_status', 'Status nahi mila')
                 bot.reply_to(message, f"✅ PNR: {pnr_no}\nStatus: {status}")
             else:
-                bot.reply_to(message, "❌ API ne data bheja par status list khali hai.")
+                bot.reply_to(message, "❌ API response khali hai.")
         else:
-            msg = res.get('message', 'Unknown API Error')
-            bot.reply_to(message, f"❌ API Message: {msg}")
+            bot.reply_to(message, f"❌ API Message: {res.get('message', 'Subscription check karein')}")
 
     except Exception as e:
-        # Ye line aapko Telegram par asli galti batayegi
-        bot.reply_to(message, f"⚠️ Technical Error: {str(e)}")
+        bot.reply_to(message, f"⚠️ Error: {str(e)}")
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Active"
+def home(): return "Bot Active"
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: bot.polling(none_stop=True)).start()
