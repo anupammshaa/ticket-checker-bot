@@ -1,7 +1,6 @@
 import telebot, requests, os, threading, time
 from flask import Flask
 
-# Variables
 TOKEN = os.environ.get('BOT_TOKEN')
 API_KEY = os.environ.get('RAPIDAPI_KEY')
 bot = telebot.TeleBot(TOKEN)
@@ -9,10 +8,14 @@ bot = telebot.TeleBot(TOKEN)
 @bot.message_handler(commands=['pnr'])
 def check_pnr(message):
     try:
-        pnr_no = message.text.split()[1]
-        bot.reply_to(message, "🔍 Checking...")
+        args = message.text.split()
+        if len(args) < 2:
+            bot.reply_to(message, "PNR number likhein.")
+            return
+            
+        pnr_no = args[1]
+        bot.reply_to(message, "🔍 Server se data nikal raha hu...")
 
-        # Amitesh API
         url = f"https://irctc-indian-railway-pnr-status.p.rapidapi.com/getPNRStatus/{pnr_no}"
         headers = {
             "X-RapidAPI-Key": API_KEY,
@@ -22,19 +25,28 @@ def check_pnr(message):
         response = requests.get(url, headers=headers)
         res = response.json()
 
-        if res.get('success'):
-            status = res['data']['pnr_status'][0]['current_status']
-            bot.reply_to(message, f"✅ Status: {status}")
+        # Agar success sahi hai
+        if res.get('success') == True:
+            # Data nikalne ki koshish
+            data = res.get('data', {})
+            pnr_status_list = data.get('pnr_status', [])
+            
+            if pnr_status_list:
+                status = pnr_status_list[0].get('current_status', 'Status nahi mila')
+                bot.reply_to(message, f"✅ PNR: {pnr_no}\nStatus: {status}")
+            else:
+                bot.reply_to(message, "❌ API ne data bheja par status list khali hai.")
         else:
-            bot.reply_to(message, f"❌ API Problem: {res.get('message')}")
+            msg = res.get('message', 'Unknown API Error')
+            bot.reply_to(message, f"❌ API Message: {msg}")
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Error: {str(e)}")
+        # Ye line aapko Telegram par asli galti batayegi
+        bot.reply_to(message, f"⚠️ Technical Error: {str(e)}")
 
-# Render ko zinda rakhne ke liye
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is Running"
+def home(): return "Active"
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: bot.polling(none_stop=True)).start()
