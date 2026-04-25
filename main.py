@@ -10,7 +10,7 @@ TOKEN = os.environ.get('BOT_TOKEN')
 API_KEY = os.environ.get('RAPIDAPI_KEY')
 bot = telebot.TeleBot(TOKEN)
 
-# User ki alerts store karne ke liye
+# User ki data store karne ke liye
 seat_alerts = {}
 pnr_alerts = {}
 
@@ -18,30 +18,50 @@ pnr_alerts = {}
 def start(message):
     welcome_text = (
         "🚂 **Anupam's Railway Assistant** 🚂\n\n"
-        "Main 24/7 seat aur PNR status check karta rahunga!\n\n"
-        "1️⃣ **Seat Alert Lagayein:**\n"
-        "`/alert [Train] [From] [To] [Date] [Class]`\n"
-        "_Example: /alert 12155 BPL NZM 28-04-2026 SL_\n\n"
-        "2️⃣ **PNR Status Alert:**\n"
+        "1️⃣ **Instant PNR + Auto Alert:**\n"
         "`/pnr [10-digit-PNR]`\n"
         "_Example: /pnr 4526123456_\n\n"
-        "Har 15 minute mein update milega!"
+        "2️⃣ **Seat Availability Alert:**\n"
+        "`/alert [Train] [From] [To] [Date] [Class]`\n"
+        "_Example: /alert 12155 BPL NZM 28-04-2026 SL_\n\n"
+        "Main har 15 minute mein status check karta rahunga!"
     )
     bot.reply_to(message, welcome_text, parse_mode='Markdown')
 
-# --- PNR Command ---
+# --- PNR Command (Instant Status + Monitoring) ---
 @bot.message_handler(commands=['pnr'])
 def set_pnr(message):
     try:
-        pnr_no = message.text.split()[1]
+        args = message.text.split()
+        if len(args) < 2:
+            bot.reply_to(message, "❌ PNR number bhi likhein. Example: `/pnr 1234567890`")
+            return
+            
+        pnr_no = args[1]
         if len(pnr_no) != 10:
             bot.reply_to(message, "❌ PNR 10 digit ka hona chahiye.")
             return
         
-        pnr_alerts[message.chat.id] = pnr_no
-        bot.reply_to(message, f"✅ PNR {pnr_no} register ho gaya! Confirm hote hi message karunga.")
-    except:
-        bot.reply_to(message, "Sahi format: `/pnr 1234567890`")
+        bot.reply_to(message, f"🔍 PNR {pnr_no} ka status check kar raha hu...")
+        
+        # Instant Status Check
+        url = "https://irctc1.p.rapidapi.com/api/v3/getPNRStatus"
+        headers = {"X-RapidAPI-Key": API_KEY, "X-RapidAPI-Host": "irctc1.p.rapidapi.com"}
+        res = requests.get(url, headers=headers, params={"pnrNumber": pnr_no}).json()
+        
+        if res.get('status'):
+            current_status = res['data']['ticket_status'][0]['current_status']
+            booking_status = res['data']['ticket_status'][0]['booking_status']
+            
+            # Abhi ka status turant batayega
+            bot.send_message(message.chat.id, f"📊 **ABHI KA STATUS:**\n\nPNR: {pnr_no}\nBooking: {booking_status}\nCurrent: {current_status}\n\n✅ Maine register kar liya hai. Confirm hote hi msg karunga!")
+            
+            # Background monitor ke liye save karein
+            pnr_alerts[message.chat.id] = pnr_no
+        else:
+            bot.reply_to(message, "❌ PNR details nahi mili. Number check karein.")
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Error: {e}")
 
 # --- Seat Alert Command ---
 @bot.message_handler(commands=['alert'])
@@ -49,7 +69,7 @@ def set_seat_alert(message):
     try:
         args = message.text.split()
         if len(args) < 6:
-            bot.reply_to(message, "Sahi format: `/alert 12155 BPL NZM 28-04-2026 SL`")
+            bot.reply_to(message, "Format: `/alert [Train] [From] [To] [Date] [Class]`")
             return
         
         seat_alerts[message.chat.id] = {
@@ -58,14 +78,12 @@ def set_seat_alert(message):
         }
         bot.reply_to(message, f"✅ Seat Alert Set! {args[1]} mein seat milte hi batata hu.")
     except:
-        bot.reply_to(message, "Error! Format check karein.")
+        bot.reply_to(message, "❌ Format check karein.")
 
 # --- Background Monitor Loop ---
 def monitor_loop():
     while True:
-        print("--- Checking Status Round Started ---")
-        
-        # 1. PNR Check
+        # PNR Monitoring
         for chat_id, pnr in list(pnr_alerts.items()):
             try:
                 url = "https://irctc1.p.rapidapi.com/api/v3/getPNRStatus"
@@ -73,13 +91,13 @@ def monitor_loop():
                 res = requests.get(url, headers=headers, params={"pnrNumber": pnr}).json()
                 
                 if res.get('status'):
-                    current_status = res['data']['ticket_status'][0]['current_status']
-                    if "CNF" in current_status.upper() or "CONFIRM" in current_status.upper():
-                        bot.send_message(chat_id, f"🎊 **PNR UPDATE:** Aapki ticket CONFIRM ho gayi!\nPNR: {pnr}\nStatus: {current_status}")
+                    curr = res['data']['ticket_status'][0]['current_status']
+                    if "CNF" in curr.upper() or "CONFIRM" in curr.upper():
+                        bot.send_message(chat_id, f"🎊 **PNR CONFIRMED!** 🎊\nPNR: {pnr}\nStatus: {curr}")
                         del pnr_alerts[chat_id]
-            except Exception as e: print(f"PNR Error: {e}")
+            except: pass
 
-        # 2. Seat Check
+        # Seat Monitoring
         for chat_id, data in list(seat_alerts.items()):
             try:
                 url = "https://irctc1.p.rapidapi.com/api/v3/checkSeatAvailability"
@@ -88,19 +106,18 @@ def monitor_loop():
                 res = requests.get(url, headers=headers, params=params).json()
                 
                 if res.get('status'):
-                    curr_status = res['data'][0]['current_status']
-                    if "AVAILABLE" in curr_status.upper():
-                        bot.send_message(chat_id, f"🚨 **SEAT MIL GAYI!** 🚨\nTrain: {data['train']}\nStatus: {curr_status}\nJaldi book karein!")
+                    curr = res['data'][0]['current_status']
+                    if "AVAILABLE" in curr.upper():
+                        bot.send_message(chat_id, f"🚨 **SEAT AVAILABLE!** 🚨\nTrain: {data['train']}\nStatus: {curr}")
                         del seat_alerts[chat_id]
-            except Exception as e: print(f"Seat Error: {e}")
+            except: pass
 
-        print("Round Complete. Sleeping for 15 minutes...")
         time.sleep(900) # 15 Minute Sleep
 
-# Server for Render
+# Server Settings
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Railway Bot Alive"
+def home(): return "Railway Bot Active"
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_loop, daemon=True).start()
