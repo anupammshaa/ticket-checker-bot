@@ -1,59 +1,41 @@
-import telebot
-import requests
-import os
-import threading
+import telebot, requests, os, threading
 from flask import Flask
 
-# Tokens (Seedha yahan daal rahe hain bina kisi galti ke)
+# Seedha details (Check kijiye ki Key wahi hai na)
 TOKEN = "8501333951:AAHSRA5JVmdmWJNvKjzlh_HXaCe8DJ0dJF4"
 API_KEY = "44a1f4ca18msh81a7a24cb739bbep16d980jsn9758cb5433bc"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "Bot is Alive"
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "Bot chalu hai! PNR status ke liye likho: /pnr [PNR-Number]")
-
 @bot.message_handler(commands=['pnr'])
 def check_pnr(message):
     try:
-        args = message.text.split()
-        if len(args) < 2:
-            bot.reply_to(message, "PNR number likhein.")
-            return
-            
-        pnr_no = args[1]
-        bot.reply_to(message, "🔍 Server se connect ho raha hu...")
+        pnr_no = message.text.split()[1]
+        bot.reply_to(message, "🔍 Stable Server se check kar raha hu...")
 
-        url = f"https://irctc-indian-railway-pnr-status.p.rapidapi.com/getPNRStatus/{pnr_no}"
+        # --- IRCTCAPI (Stable Version) ---
+        url = "https://irctc1.p.rapidapi.com/api/v3/getPNRStatus"
         headers = {
             "X-RapidAPI-Key": API_KEY,
-            "X-RapidAPI-Host": "irctc-indian-railway-pnr-status.p.rapidapi.com"
+            "X-RapidAPI-Host": "irctc1.p.rapidapi.com"
         }
         
-        response = requests.get(url, headers=headers)
-        res = response.json()
+        res = requests.get(url, headers=headers, params={"pnrNumber": pnr_no}).json()
 
-        if res.get('success'):
-            status = res['data']['pnr_status'][0]['current_status']
-            bot.reply_to(message, f"✅ PNR: {pnr_no}\nStatus: {status}")
+        if res.get('status') == True:
+            # Is API ka data format thoda alag hai
+            current_status = res['data']['ticket_status'][0]['current_status']
+            bot.reply_to(message, f"✅ PNR: {pnr_no}\nStatus: {current_status}")
         else:
-            bot.reply_to(message, f"❌ API Message: {res.get('message', 'Subscription check karein')}")
+            bot.reply_to(message, f"❌ API Problem: {res.get('message', 'Data nahi mila')}")
 
     except Exception as e:
         bot.reply_to(message, f"⚠️ Error: {str(e)}")
 
-def run_bot():
-    bot.polling(none_stop=True)
+@app.route('/')
+def home(): return "Bot Running"
 
 if __name__ == "__main__":
-    # Bot ko alag thread mein chalayenge
-    threading.Thread(target=run_bot).start()
-    # Flask server ko port par chalayenge
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    threading.Thread(target=lambda: bot.polling(none_stop=True)).start()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
